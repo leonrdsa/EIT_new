@@ -10,7 +10,7 @@ from tensorflow.keras.models import load_model
 
 from utils.setup import set_seeds
 from utils.dataloader import load_eit_dataset
-from utils.metrics import compute_segmentation_metrics, compute_confusion_matrix
+from utils.metrics import reconstruct_image, compute_segmentation_metrics, compute_confusion_matrix
 from utils.metrics import compute_MSE, compute_CNR, compute_SSIM_batch
 from models.image_reconstruction import Voltage2Image
 from models.schedulers import scheduler, SchedulerandTrackerCallback
@@ -181,48 +181,40 @@ if __name__ == "__main__":
 
         plt.show()
     
+    reconstructed_images, binary_reconstructions = reconstruct_image(
+        model,
+        x_test,
+        threshold=args.binary_threshold
+    )
+
     metrics = compute_segmentation_metrics(
-        model, 
-        x_test, 
-        y_test, 
+        binary_reconstructions,
+        y_test,
+    )
+
+    metrics["MSE"] = compute_MSE(
+        reconstructed_images,
+        y_test
+    )
+
+    metrics["CNR"] = compute_CNR(
+        binary_reconstructions,
+        y_test,
+    )
+
+    metrics["SSIM"] = compute_SSIM_batch(
+        reconstructed_images,
+        y_test,
         threshold=args.binary_threshold
     )
 
     for k, v in metrics.items():
-        print(f"{k.capitalize()}: {v:.5f}")
+        print(f"{k}: {v:.5f}")
 
-    confusion_mtx = compute_confusion_matrix(
-        model,
-        x_test,
+    confusion_matrix = compute_confusion_matrix(
+        binary_reconstructions,
         y_test,
-        threshold=args.binary_threshold
     )
 
     print("Confusion Matrix:")
-    print(confusion_mtx)
-
-    compute_MSE_value = compute_MSE(
-        model,
-        x_test,
-        y_test
-    )
-
-    print(f"Mean Squared Error (MSE): {compute_MSE_value:.5f}")
-
-    cnr_value = compute_CNR(
-        model,
-        x_test,
-        y_test,
-        threshold=args.binary_threshold
-    )
-
-    print(f"Contrast-to-Noise Ratio (CNR): {cnr_value:.5f}")
-
-    ssim_mean = compute_SSIM_batch(
-        model,
-        x_test,
-        y_test,
-        threshold=args.binary_threshold
-    )
-
-    print(f"Mean SSIM: {ssim_mean:.5f}")
+    print(confusion_matrix)

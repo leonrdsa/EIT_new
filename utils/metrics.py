@@ -3,27 +3,40 @@ import tensorflow as tf
 
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, confusion_matrix
 
-from typing import Dict, Union
+from typing import Dict, Union, Tuple
+
+def reconstruct_image(
+        model: tf.keras.Model,
+        input_data: np.ndarray,
+        threshold: float = 0.5
+    ) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Use the trained model to reconstruct images from input voltage data.
+    Args:
+        model (tf.keras.Model): Trained TensorFlow Keras model to use for prediction.
+        input_data (np.ndarray): Input voltage data for prediction.
+        threshold (float): Threshold to binarize the model's output.
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: Reconstructed images and their binary versions.
+    """
+
+    reconstructed_images = model.predict(input_data)
+    binary_reconstruction = np.where(reconstructed_images >= threshold, 1, 0)
+    return reconstructed_images, binary_reconstruction
 
 def compute_segmentation_metrics(
-        model: tf.keras.Model, 
-        input_data: np.ndarray, 
+        binary_reconstruction: np.ndarray,
         image_labels: np.ndarray, 
-        threshold=0.5
     ) -> Dict[str, float]:
     """
-    Compute segmentation metrics for a trained model on given input data
+    Compute segmentation metrics between binary reconstruction and ground truth labels.
     Args:
-        model (tf.keras.Model): Trained TensorFlow Keras model to evaluate.
-        input_data (np.ndarray): Input voltage data for evaluation.
+        binary_reconstruction (np.ndarray): Model's binary output images.
         image_labels (np.ndarray): Ground truth labelled images.
-        threshold (float): Threshold to binarize the model's output.
     Returns:
         dict: A dictionary containing accuracy, precision, recall, and F1-score.
     """
 
-    res = model.predict(input_data)
-    binary_reconstruction = np.where(res >= threshold, 1, 0)
     image_labels_flat = image_labels.reshape(-1)
     binary_reconstruction_flat = binary_reconstruction.reshape(-1)
     accu = np.mean(np.equal(image_labels_flat,binary_reconstruction_flat))
@@ -41,24 +54,19 @@ def compute_segmentation_metrics(
     return metrics
 
 def compute_confusion_matrix(
-        model: tf.keras.Model, 
-        input_data: np.ndarray, 
+        binary_reconstruction: np.ndarray,
         image_labels: np.ndarray, 
-        threshold=0.5
     ) -> np.ndarray:
     """
-    Compute confusion matrix for a trained model on given input data
+    Compute confusion matrix between binary reconstruction and ground truth labels.
     Args:
-        model (tf.keras.Model): Trained TensorFlow Keras model to evaluate.
-        input_data (np.ndarray): Input voltage data for evaluation.
+        binary_reconstruction (np.ndarray): Model's binary output images.
         image_labels (np.ndarray): Ground truth labelled images.
-        threshold (float): Threshold to binarize the model's output.
     Returns:
         np.ndarray: Confusion matrix as a 2D numpy array.
     """
 
-    res = model.predict(input_data)
-    binary_reconstruction = np.where(res >= threshold, 1, 0)
+
     image_labels_flat = image_labels.reshape(-1)
     binary_reconstruction_flat = binary_reconstruction.reshape(-1)
 
@@ -67,41 +75,32 @@ def compute_confusion_matrix(
     return cm
 
 def compute_MSE(
-        model: tf.keras.Model, 
-        input_data: np.ndarray, 
+        reconstructed_images: np.ndarray,
         image_labels: np.ndarray
     ) -> float:
     """
     Compute Mean Squared Error (MSE) between two images.
     Args:
-        model (tf.keras.Model): Trained TensorFlow Keras model to evaluate.
-        input_data (np.ndarray): Input voltage data for evaluation.
+        reconstructed_images (np.ndarray): Model's reconstructed images.
         image_labels (np.ndarray): Ground truth labelled images.
     Returns:
         float: MSE value between the two images.
     """
-    res = model.predict(input_data)
-    mse_value = np.mean((image_labels -  res) ** 2)
+    mse_value = np.mean((image_labels -  reconstructed_images) ** 2)
     return mse_value
 
 def compute_CNR(
-        model: tf.keras.Model, 
-        input_data: np.ndarray, 
+        binary_reconstruction: np.ndarray,
         image_labels: np.ndarray,
-        threshold=0.5
     ) -> float:
     """
     Compute Contrast-to-Noise Ratio (CNR) between two images.
     Args:
-        model (tf.keras.Model): Trained TensorFlow Keras model to evaluate.
-        input_data (np.ndarray): Input voltage data for evaluation.
+        binary_reconstruction (np.ndarray): Model's binary output images.
         image_labels (np.ndarray): Ground truth labelled images.
-        threshold (float): Threshold to binarize the model's output.
     Returns:
         float: CNR value between the two images.
     """
-    res = model.predict(input_data)
-    binary_reconstruction = np.where(res >= threshold, 1, 0)
 
     signal_region = image_labels[binary_reconstruction == 1]
     background_region = image_labels[binary_reconstruction == 0]
@@ -115,8 +114,7 @@ def compute_CNR(
     return cnr_value
 
 def compute_SSIM_batch(
-    model: tf.keras.Model,
-    input_data: np.ndarray,
+    reconstructed_images: np.ndarray,
     image_labels: np.ndarray,
     threshold: float = 0.5,
     use_threshold_for_prediction: bool = False,
@@ -137,11 +135,8 @@ def compute_SSIM_batch(
         mean SSIM (float) if reduction == 'mean', else np.ndarray with shape (batch,)
     """
 
-    # Predict (returns shape (batch, H, W) or (batch, H, W, 1) depending on model)
-    preds = model.predict(input_data)
-
     # Ensure arrays (numpy) and float32 dtype
-    preds = np.asarray(preds, dtype=np.float32)
+    preds = np.asarray(reconstructed_images, dtype=np.float32)
     labels = np.asarray(image_labels, dtype=np.float32)
 
     # If label images are (batch, H, W), add channel dim
