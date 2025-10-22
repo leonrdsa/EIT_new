@@ -1,3 +1,4 @@
+import os
 import argparse
 
 import numpy as np
@@ -9,7 +10,8 @@ from tensorflow.keras.models import load_model
 
 from utils.setup import set_seeds
 from utils.dataloader import load_eit_dataset
-from utils.metrics import compute_segmentation_metrics
+from utils.metrics import compute_segmentation_metrics, compute_confusion_matrix
+from utils.metrics import compute_MSE, compute_CNR, compute_SSIM_batch
 from models.image_reconstruction import Voltage2Image
 from models.schedulers import scheduler, SchedulerandTrackerCallback
 
@@ -51,8 +53,14 @@ def read_options() -> argparse.Namespace:
     parser.add_argument('--epochs', type=int, default=1000, help='Number of training epochs')
     parser.add_argument('--loss', type=str, choices=['mse', 'binary_crossentropy'], default='binary_crossentropy',
                         help='Loss function to use during training')
+    
+    # Model loading parameters
+    parser.add_argument('--checkpoint-dir', type=str, default='./checkpoints', help='Directory to save/load model checkpoints')
     parser.add_argument('-l', '--load-model', action='store_true', help='Flag to load a pre-trained model')
-    parser.add_argument('--model-path', type=str, default='./checkpoints/modeloriginal.h', help='Path to the pre-trained model file')
+    parser.add_argument('--load-model-folder', type=str, default='modeloriginal.h', help='Folder name to load the pre-trained model from')
+
+    parser.add_argument('-s', '--save-model', action='store_true', help='Flag to save the trained model')
+    parser.add_argument('--save-model-folder', type=str, default='modeltemp.h', help='Folder name to save the trained model to')
 
     args = parser.parse_args()
     return args
@@ -115,9 +123,15 @@ if __name__ == "__main__":
 
     callback = SchedulerandTrackerCallback(scheduler)
     opt = tf.keras.optimizers.Adam(learning_rate=args.learning_rate)
-    
+
     if args.load_model:
-        model = load_model(args.model_path)
+        load_path = os.path.join(args.checkpoint_dir, args.load_model_folder)
+        
+        if load_path is None or not os.path.exists(load_path):
+            raise ValueError(f"Error! Model path {load_path} does not exist!")
+        print("Loading model from:", load_path)
+
+        model = load_model(load_path)
     else:
         model = Voltage2Image(
             input_shape=voltage_data.shape[1:], 
@@ -146,10 +160,13 @@ if __name__ == "__main__":
         loss = history.history['loss']
 
         # -------------------------------------------------------------------
-        # Heatmap of loss with each epoch and learning rate
-
-        # TODO: Add option to save the model
-        # model.save('./checkpoints/modeloriginal.h5')
+        # Saving Model
+        if args.save_model:
+            if not os.path.exists(args.checkpoint_dir):
+                os.makedirs(args.checkpoint_dir)
+            model_path = os.path.join(args.checkpoint_dir, args.save_model_folder)
+            print("Saving model to:", model_path)
+            model.save(model_path)
 
     # -------------------------------------------------------------------
     # Evaluation
@@ -170,5 +187,42 @@ if __name__ == "__main__":
         y_test, 
         threshold=args.binary_threshold
     )
+
     for k, v in metrics.items():
         print(f"{k.capitalize()}: {v:.5f}")
+
+    confusion_mtx = compute_confusion_matrix(
+        model,
+        x_test,
+        y_test,
+        threshold=args.binary_threshold
+    )
+
+    print("Confusion Matrix:")
+    print(confusion_mtx)
+
+    compute_MSE_value = compute_MSE(
+        model,
+        x_test,
+        y_test
+    )
+
+    print(f"Mean Squared Error (MSE): {compute_MSE_value:.5f}")
+
+    cnr_value = compute_CNR(
+        model,
+        x_test,
+        y_test,
+        threshold=args.binary_threshold
+    )
+
+    print(f"Contrast-to-Noise Ratio (CNR): {cnr_value:.5f}")
+
+    ssim_mean = compute_SSIM_batch(
+        model,
+        x_test,
+        y_test,
+        threshold=args.binary_threshold
+    )
+
+    print(f"Mean SSIM: {ssim_mean:.5f}")
