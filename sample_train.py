@@ -2,6 +2,7 @@ import os
 import argparse
 import json
 import sys
+import hashlib
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -68,6 +69,12 @@ def read_options() -> argparse.Namespace:
     parser.add_argument('-s', '--save-model', action='store_true', help='Flag to save the trained model')
     parser.add_argument('--save-model-folder', type=str, default='modeloriginal.h', help='Folder name to save the trained model to')
 
+    # Caching options to speed up repeated experiments
+    parser.add_argument('--use-cache', action='store_true', help='Load preprocessed data from cache if available')
+    parser.add_argument('--store-cache', action='store_true', help='Store preprocessed data to cache after loading')
+    parser.add_argument('--rebuild-cache', action='store_true', help='Ignore cache and rebuild it from source files')
+    parser.add_argument('--cache-dir', type=str, default='.cache', help='Directory to store/load cached .npz files')
+
     args = parser.parse_args()
     return args
 
@@ -80,6 +87,7 @@ if __name__ == "__main__":
     #------------------------------------------------------------------
     # Loading Samples
 
+    # Load EIT dataset
     voltage_data, images, exp_info = load_eit_dataset(
         data_path=args.data_path,
         experiments=args.experiments,
@@ -87,7 +95,11 @@ if __name__ == "__main__":
         offset_num=args.offset_num,
         num_pins=args.num_pins,
         resolution=args.resolution,
-        sampling_rate=args.sampling_rate
+        sampling_rate=args.sampling_rate,
+        use_cache=args.use_cache,
+        rebuild_cache=args.rebuild_cache,
+        store_cache=args.store_cache,
+        cache_dir=args.cache_dir
     )
 
     voltage_data = voltage_data[..., np.newaxis]  # Add channel dimension for TF
@@ -140,8 +152,10 @@ if __name__ == "__main__":
     train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train)).batch(args.batch_size)
     test_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(args.batch_size)
 
+    print(f"Train dataset samples: {x_train.shape[0]}, Test dataset samples: {x_test.shape[0]}")
     print(f"Train dataset batches: {len(train_dataset)}, Test dataset batches: {len(test_dataset)}")
     
+    sys.exit()
     # -------------------------------------------------------------------
     # Compiling Model and Optimizer
 

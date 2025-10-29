@@ -1,6 +1,8 @@
 import os
 import json
 import csv
+import hashlib
+
 import numpy as np
 import cv2
 
@@ -97,52 +99,93 @@ def load_eit_dataset(
     offset_num: int, 
     num_pins: int, 
     resolution: int, 
-    sampling_rate: int
+    sampling_rate: int,
+    use_cache: bool = False,
+    rebuild_cache: bool = False,
+    store_cache: bool = False,
+    cache_dir: str = '.cache'
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Load voltage time-series and corresponding label images from multiple
-    experiment subfolders. This function centralizes the loading logic so
-    higher-level scripts can request data by passing a list of experiment
-    folder names.
+    Load voltage time-series, corresponding label images, and per-sample
+    experiment metadata from multiple experiment subfolders.
 
-    Inputs
-    - data_path: root directory containing experiment subfolders, e.g.
-        ./data/<experiment_folder>/voltage.csv and ./data/<experiment_folder>/label_vector/
-    - experiments: list of folder names (strings) to load.
-    - num_samples: number of samples expected per experiment (used to
-        construct the index range to request from `read_voltage` and
-        `load_image`). Note: the function will only return indices that
-        were actually present in the files.
-    - offset_num: offset applied to the index range and to image filenames
-        (some datasets may start images at label0 while logical sample
-        indexing begins at offset_num).
+    This function supports optional on-disk caching of the fully-loaded
+    dataset (compressed .npz) to speed up repeated experiments. Use the
+    `use_cache`, `rebuild_cache`, and `store_cache` flags to control cache
+    behavior. A cache key is computed from the dataset parameters
+    (experiment list and numeric loading parameters) so different
+    dataset configurations use different cache files.
+
+    Parameters
+    - data_path (str): root directory containing experiment subfolders,
+        e.g. ./data/<experiment_folder>/voltage.csv and
+        ./data/<experiment_folder>/label_vector/.
+    - experiments (List[str]): list of folder names (strings) to load.
+    - num_samples (int): number of samples expected per experiment. Used
+        to construct the index range to request from `read_voltage` and
+        `load_image`. Only indices actually present in files are returned.
+    - offset_num (int): offset applied to the index range and to image
+        filenames (some datasets start images at label0 while logical
+        sample indexing begins at offset_num).
     - num_pins, resolution, sampling_rate: technical parameters used to
-        pre-allocate arrays with correct shapes. They do not change how
-        files are read, but they document expected dimensions.
+        pre-allocate arrays with expected shapes; they do not change how
+        files are parsed but document expected dimensions.
+    - use_cache (bool): if True, attempt to load a cached .npz file
+        matching the dataset parameters. If found the cached arrays are
+        returned immediately.
+    - rebuild_cache (bool): when True ignore any existing cache and
+        rebuild it from source files.
+    - store_cache (bool): when True save the loaded arrays to a
+        compressed .npz (pickle allowed for metadata) under `cache_dir`.
+    - cache_dir (str): directory used to read/write cache files.
 
     Returns
-    - voltage_data: np.ndarray shaped (N_total, num_pins, sampling_rate*num_pins),
-        where N_total is the sum of successfully loaded samples across
-        all experiments. Each entry contains the raw voltage time-series
-        (float values as read from CSV).
-    - images: np.ndarray shaped (N_total, resolution, resolution) containing
-        the corresponding label images loaded from the `label_vector` dir.
-    - exp_info: np.ndarray shaped (N_total,) containing experiment metadata
-        dictionaries loaded from each experiment's `info.json` file. Each
-        entry corresponds to one sample in `voltage_data` and `images`.
+    - voltage_data (np.ndarray): shape (N_total, num_pins, sampling_rate*num_pins).
+    - images (np.ndarray): shape (N_total, resolution, resolution).
+    - exp_info (np.ndarray(dtype=object)): length N_total where each entry
+        is a metadata dict loaded from the experiment's `info.json`. The
+        ordering of `exp_info` matches `voltage_data` and `images`.
 
-    Behavior and notes
+    Notes
     - The function constructs an `index` list per experiment using
       `np.arange(offset_num, num_samples + offset_num)` and passes it to
       `read_voltage`. `read_voltage` returns both data and the filtered
       index list of samples that were actually found/parsed. The same
-      filtered index list is used to load images so the two arrays stay
+      filtered index list is used to load images so voltage/images stay
       aligned.
     - To accumulate data across multiple experiments we start with
-      zero-sized arrays and use `np.vstack`. This keeps the function
-      simple but allocates intermediate memory; for very large datasets
-      consider preallocating or writing a generator-based loader.
+      zero-sized arrays and use `np.vstack`. This is simple but allocates
+      intermediate memory; for very large datasets consider a streaming
+      or generator-based loader.
+    - Cache files are compressed `.npz` named `data_cache_<md5>.npz` where
+      the md5 is computed from the loading parameters. `exp_info` is
+      stored as an object array (pickled) to preserve nested dicts.
     """
+
+    cache_path = None
+    if use_cache or store_cache:
+        # Ensure cache directory exists
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir, exist_ok=True)
+
+        cache_meta = {
+            "experiments": experiments,
+            "num_samples": num_samples,
+            "offset_num": offset_num,
+            "num_pins": num_pins,
+            "resolution": resolution,
+            "sampling_rate": sampling_rate,
+        }
+        cache_key = hashlib.md5(json.dumps(cache_meta, sort_keys=True).encode('utf-8')).hexdigest()
+        cache_path = os.path.join(cache_dir, f"data_cache_{cache_key}.npz")
+
+    if use_cache and (not rebuild_cache) and cache_path and os.path.exists(cache_path):
+        print(f"Loading data from cache: {cache_path}")
+        cached = np.load(cache_path, allow_pickle=True)
+        voltage_data = cached['voltage']
+        images = cached['images']
+        exp_info = cached['exp_info']
+        return voltage_data, images, exp_info
 
     # ------------------------------------------------------------------
     # Prepare empty containers for stacking loaded data from multiple
@@ -190,5 +233,10 @@ def load_eit_dataset(
         info = read_experiment_info(info_path)
         info = np.repeat(info, len(data))
         exp_info = np.concatenate((exp_info, info))
+
+    if store_cache and cache_path:
+        print(f"Saving loaded data to cache: {cache_path}")
+        # Save arrays; exp_info may be a list of dicts, so allow pickle on load
+        np.savez_compressed(cache_path, voltage=voltage_data, images=images, exp_info=exp_info)
 
     return voltage_data, images, exp_info
