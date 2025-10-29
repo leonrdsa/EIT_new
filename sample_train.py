@@ -33,8 +33,8 @@ def read_options() -> argparse.Namespace:
     # Data loading parameters
     parser.add_argument('--data-path', type=str, default='./data', help='Root data directory')
     parser.add_argument('-e', '--experiments', nargs='+', 
-                        default = ['1022.1', '1022.4'],
-                        # default=['1022.1', '1022.2', '1022.3', '1022.4', '1024.5', '1024.6', '1024.7', '1025.8'],
+                        # default = ['1022.1', '1022.4'],
+                        default=['1022.1', '1022.2', '1022.3', '1022.4', '1024.5', '1024.6', '1024.7', '1025.8'],
                         help='List of experiment folder names to load (space separated)')
     parser.add_argument('--num-samples', type=int, default=722, help='Total number of samples per experiment')
     parser.add_argument('--offset-num', type=int, default=2, help='Offset to skip the first N samples')
@@ -65,7 +65,7 @@ def read_options() -> argparse.Namespace:
     parser.add_argument('--load-model-folder', type=str, default='modeloriginal.h', help='Folder name to load the pre-trained model from')
 
     parser.add_argument('-s', '--save-model', action='store_true', help='Flag to save the trained model')
-    parser.add_argument('--save-model-folder', type=str, default='modeltemp.h', help='Folder name to save the trained model to')
+    parser.add_argument('--save-model-folder', type=str, default='modeloriginal.h', help='Folder name to save the trained model to')
 
     args = parser.parse_args()
     return args
@@ -97,12 +97,9 @@ if __name__ == "__main__":
     print(f"Exp info shape: {exp_info.shape}")
 
     # ------------------------------------------------------------------
-    # Processing of Images
+    # Splits and Data Processing
 
     images = 1*(images > 100) # Binarize images
-
-    # ------------------------------------------------------------------
-    # Splits
 
     x_train, x_test, y_train, y_test, exp_info_train, exp_info_test = train_test_split(
         voltage_data,
@@ -112,7 +109,14 @@ if __name__ == "__main__":
         random_state=args.seed  # not included by set_seeds function
     )  # split the dataset
 
-    # Get all indices from exp_info_train based on training_circles_num
+    # normalization values (along sample and time axis)
+    mean = x_train.mean(axis=(0,2), keepdims = True)
+    var = x_train.std(axis=(0,2), keepdims = True)
+
+    x_train = (x_train - mean) / var
+    x_test = (x_test - mean) / var
+
+    # Use only samples with specified number of circles for training/testing
     if args.training_circles_num != 'all':
         print(f"Limiting training data to samples with {args.training_circles_num} circles.")
         num_circles = int(args.training_circles_num)
@@ -122,7 +126,6 @@ if __name__ == "__main__":
         y_train = y_train[selected_indices]
         exp_info_train = exp_info_train[selected_indices]
     
-    # Get all indices from exp_info_test based on testing_circles_num
     if args.testing_circles_num != 'all':
         print(f"Limiting testing data to samples with {args.testing_circles_num} circles.")
         num_circles = int(args.testing_circles_num)
@@ -131,13 +134,6 @@ if __name__ == "__main__":
         x_test = x_test[selected_indices]
         y_test = y_test[selected_indices]
         exp_info_test = exp_info_test[selected_indices]
-
-    # normalization values (along sample and time axis)
-    mean = x_train.mean(axis=(0,2), keepdims = True)
-    var = x_train.std(axis=(0,2), keepdims = True)
-
-    x_train = (x_train - mean) / var
-    x_test = (x_test - mean) / var
 
     # convert to tf.data.Dataset
     train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train)).batch(args.batch_size)
@@ -172,7 +168,7 @@ if __name__ == "__main__":
         model.compile(
             loss=args.loss, 
             optimizer=opt, 
-            metrics=['accuracy']
+            metrics=['accuracy'],
         )
 
         model.summary()
