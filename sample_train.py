@@ -17,7 +17,7 @@ from utils.filters import bandpass_filter, pca_transform, savitzky_filter, wavel
 from utils.metrics import reconstruct_image, compute_segmentation_metrics, compute_confusion_matrix
 from utils.metrics import compute_MSE, compute_CNR, compute_SSIM_batch
 from models.image_reconstruction import Voltage2Image
-from models.schedulers import scheduler, SchedulerandTrackerCallback
+from models.schedulers import SchedulerandTrackerCallback
 
 def read_options() -> argparse.Namespace:
     """Parse and return command-line options.
@@ -73,10 +73,10 @@ def read_options() -> argparse.Namespace:
     # Model loading parameters
     parser.add_argument('--checkpoint-dir', type=str, default='./checkpoints', help='Directory to save/load model checkpoints')
     parser.add_argument('-l', '--load-model', action='store_true', help='Flag to load a pre-trained model')
-    parser.add_argument('--load-model-folder', type=str, default='modeloriginal.h', help='Folder name to load the pre-trained model from')
+    parser.add_argument('--load-model-folder', type=str, default='modeloriginal.h5', help='Folder name to load the pre-trained model from')
 
     parser.add_argument('-s', '--save-model', action='store_true', help='Flag to save the trained model')
-    parser.add_argument('--save-model-folder', type=str, default='modeloriginal.h', help='Folder name to save the trained model to')
+    parser.add_argument('--save-model-folder', type=str, default='modeloriginal.h5', help='Folder name to save the trained model to')
 
     # Caching options to speed up repeated experiments
     parser.add_argument('--use-cache', action='store_true', help='Load preprocessed data from cache if available')
@@ -190,8 +190,27 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------
     # Compiling Model and Optimizer
 
-    callback = SchedulerandTrackerCallback(scheduler)
-    opt = tf.keras.optimizers.Adam(learning_rate=args.learning_rate)
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            # Currently, memory growth needs to be the same across GPUs
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+        except RuntimeError as e:
+            # Memory growth must be set before GPUs have been initialized
+            print(e)
+
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=args.learning_rate,
+        decay_steps=500,
+        decay_rate=0.9,
+        staircase=True
+    )
+    
+    opt = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
+    callback = SchedulerandTrackerCallback()
 
     if args.load_model:
         load_path = os.path.join(args.checkpoint_dir, args.load_model_folder)
@@ -209,9 +228,9 @@ if __name__ == "__main__":
             output_shape=images.shape[1:]
         )
     
-        model.build(
-            data_shape
-        )
+        # model.build(
+        #     data_shape
+        # )
 
         model.compile(
             loss=args.loss, 
@@ -241,16 +260,16 @@ if __name__ == "__main__":
 
     # -------------------------------------------------------------------
     # Evaluation
-    if not args.load_model:
-        plt.figure()
-        plt.plot(history.history['loss'], label = 'Training loss')
-        plt.plot(history.history['val_loss'], label = 'Validation loss')
-        plt.legend()  # Add legend elements
-        plt.xlabel('Epochs')
-        plt.ylabel('Loss')
-        plt.title('Training and Validation Loss')
+    # if not args.load_model:
+    #     plt.figure()
+    #     plt.plot(history.history['loss'], label = 'Training loss')
+    #     plt.plot(history.history['val_loss'], label = 'Validation loss')
+    #     plt.legend()  # Add legend elements
+    #     plt.xlabel('Epochs')
+    #     plt.ylabel('Loss')
+    #     plt.title('Training and Validation Loss')
 
-        plt.show()
+    #     plt.show()
     
     reconstructed_images, binary_reconstructions = reconstruct_image(
         model,
@@ -295,10 +314,10 @@ if __name__ == "__main__":
         if args.save_model: path = os.path.join(args.checkpoint_dir, args.save_model_folder)
         elif args.load_model: path = os.path.join(args.checkpoint_dir, args.load_model_folder)
 
-        metrics_path = os.path.join(path, 'metrics.json')
-        with open(metrics_path, 'w') as f:
-            json.dump(metrics, f, indent=4)
+        # metrics_path = os.path.join(path, 'metrics.json')
+        # with open(metrics_path, 'w') as f:
+        #     json.dump(metrics, f, indent=4)
 
-        confusion_matrix_path = os.path.join(path, 'confusion_matrix.txt')
-        with open(confusion_matrix_path, 'w') as f:
-            f.write(np.array2string(confusion_matrix))
+        # confusion_matrix_path = os.path.join(path, 'confusion_matrix.txt')
+        # with open(confusion_matrix_path, 'w') as f:
+        #     f.write(np.array2string(confusion_matrix))

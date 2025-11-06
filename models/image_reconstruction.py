@@ -3,9 +3,6 @@ from sklearn.model_selection import train_test_split
 from tensorflow.keras.models import Sequential
 from tensorflow.keras import layers
 
-# TODO: check if this relu is necessary
-relu = lambda x: tf.math.maximum(x,0.0)
-
 def Voltage2Image(
         input_shape: tf.data.Dataset, 
         output_shape: tf.data.Dataset,
@@ -21,7 +18,7 @@ def Voltage2Image(
 
     model = Sequential()
     
-    model.add(layers.Conv2D(16, kernel_size=3, activation = relu, input_shape = input_shape,))
+    model.add(layers.Conv2D(16, kernel_size=3, activation='relu', input_shape=input_shape))
     model.add(layers.MaxPooling2D(pool_size =2))
     model.add(layers.Dense(32, activation = 'relu'))
     model.add(layers.Dropout(0.25))
