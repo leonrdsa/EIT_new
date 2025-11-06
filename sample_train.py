@@ -76,6 +76,8 @@ def read_options() -> argparse.Namespace:
     parser.add_argument('--load-model-folder', type=str, default='modeloriginal.h5', help='Folder name to load the pre-trained model from')
 
     parser.add_argument('-s', '--save-model', action='store_true', help='Flag to save the trained model')
+    parser.add_argument('-m', '--save-multi-checkpoint', action='store_true', help='Flag to save the model at regular intervals during training')
+    parser.add_argument('--save-every', type=int, default=100, help='Save the model every N epochs if --save-multi-checkpoint is set')
     parser.add_argument('--save-model-folder', type=str, default='modeloriginal.h5', help='Folder name to save the trained model to')
 
     # Caching options to speed up repeated experiments
@@ -208,12 +210,26 @@ if __name__ == "__main__":
         decay_rate=0.9,
         staircase=True
     )
-    
+
     opt = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
-    callback = SchedulerandTrackerCallback()
+
+    if args.save_model and args.save_multi_checkpoint:
+        # Setup callbacks
+        callbacks = [
+            SchedulerandTrackerCallback(),
+            tf.keras.callbacks.ModelCheckpoint(
+                filepath=os.path.join(args.checkpoint_dir, args.args.save_model_folder + '_epoch{epoch:03d}.keras'),
+                save_weights_only=False,
+                save_best_only=False,
+                save_freq='epoch',
+                period=args.save_every  # Save every N epochs
+            )
+        ]
+    else:
+        callbacks = [SchedulerandTrackerCallback()]
 
     if args.load_model:
-        load_path = os.path.join(args.checkpoint_dir, args.load_model_folder)
+        load_path = os.path.join(args.checkpoint_dir, args.load_model_folder, f'{args.load_model_folder}.keras')
         
         if load_path is None or not os.path.exists(load_path):
             raise ValueError(f"Error! Model path {load_path} does not exist!")
@@ -227,10 +243,6 @@ if __name__ == "__main__":
             input_shape=data_shape[1:], 
             output_shape=images.shape[1:]
         )
-    
-        # model.build(
-        #     data_shape
-        # )
 
         model.compile(
             loss=args.loss, 
@@ -244,7 +256,7 @@ if __name__ == "__main__":
             train_dataset, 
             epochs=args.epochs, 
             validation_data=test_dataset,
-            callbacks=callback,
+            callbacks=callbacks,
             shuffle=True
         )
         loss = history.history['loss']
@@ -254,7 +266,9 @@ if __name__ == "__main__":
         if args.save_model:
             if not os.path.exists(args.checkpoint_dir):
                 os.makedirs(args.checkpoint_dir)
-            model_path = os.path.join(args.checkpoint_dir, args.save_model_folder)
+            if not os.path.exists(os.path.join(args.checkpoint_dir, args.save_model_folder)):
+                os.makedirs(os.path.join(args.checkpoint_dir, args.save_model_folder))
+            model_path = os.path.join(args.checkpoint_dir, args.save_model_folder, f'{args.save_model_folder}.keras')
             print("Saving model to:", model_path)
             model.save(model_path)
 
@@ -314,10 +328,10 @@ if __name__ == "__main__":
         if args.save_model: path = os.path.join(args.checkpoint_dir, args.save_model_folder)
         elif args.load_model: path = os.path.join(args.checkpoint_dir, args.load_model_folder)
 
-        # metrics_path = os.path.join(path, 'metrics.json')
-        # with open(metrics_path, 'w') as f:
-        #     json.dump(metrics, f, indent=4)
+        metrics_path = os.path.join(path, 'metrics.json')
+        with open(metrics_path, 'w') as f:
+            json.dump(metrics, f, indent=4)
 
-        # confusion_matrix_path = os.path.join(path, 'confusion_matrix.txt')
-        # with open(confusion_matrix_path, 'w') as f:
-        #     f.write(np.array2string(confusion_matrix))
+        confusion_matrix_path = os.path.join(path, 'confusion_matrix.txt')
+        with open(confusion_matrix_path, 'w') as f:
+            f.write(np.array2string(confusion_matrix))
