@@ -1,5 +1,4 @@
 import tensorflow as tf
-from sklearn.model_selection import train_test_split
 from tensorflow.keras.models import Sequential
 from tensorflow.keras import layers
 
@@ -19,7 +18,7 @@ def Voltage2Image(
     model = Sequential()
     
     model.add(layers.Conv2D(16, kernel_size=3, activation='relu', input_shape=input_shape))
-    model.add(layers.MaxPooling2D(pool_size =2))
+    model.add(layers.MaxPooling2D(pool_size = 2))
     model.add(layers.Dense(32, activation = 'relu'))
     model.add(layers.Dropout(0.25))
     model.add(layers.Reshape((16,-1)))
