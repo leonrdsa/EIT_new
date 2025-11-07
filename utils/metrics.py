@@ -220,3 +220,18 @@ def compute_SSIM_batch(
         return float(np.mean(ssim_per_image))
     else:
         return ssim_per_image
+    
+class ThresholdedIoU(tf.keras.metrics.IoU):
+    def __init__(self, num_classes, target_class_ids, name='seg_iou', threshold=0.5, dtype=None):
+        super().__init__(num_classes=num_classes, target_class_ids=target_class_ids, name=name, dtype=dtype)
+        self.threshold = threshold  # Define your desired threshold
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        # Explicitly threshold the predictions to get binary values (0 or 1)
+        y_pred = tf.cast(tf.math.greater(y_pred, self.threshold), dtype=tf.float32)
+        
+        # Ensure y_true is also in the correct discrete format if needed (usually it is from the data pipeline)
+        # y_true = tf.cast(tf.math.round(y_true), dtype=tf.float32) 
+        
+        # Call the parent update_state with the now-discrete values
+        super().update_state(y_true, y_pred, sample_weight)

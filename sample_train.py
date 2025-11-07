@@ -16,6 +16,7 @@ from utils.dataloader import load_eit_dataset
 from utils.filters import bandpass_filter, pca_transform, savitzky_filter, wavelet_filter
 from utils.metrics import compute_SSIM, reconstruct_image, compute_segmentation_metrics, compute_confusion_matrix
 from utils.metrics import compute_MSE, compute_CNR, compute_PSNR, compute_SSIM, compute_SSIM_batch
+from utils.metrics import ThresholdedIoU
 from models.image_reconstruction import Voltage2Image
 from models.schedulers import SchedulerandTrackerCallback
 
@@ -36,7 +37,6 @@ def read_options() -> argparse.Namespace:
     # Data loading parameters
     parser.add_argument('--data-path', type=str, default='./data', help='Root data directory')
     parser.add_argument('-e', '--experiments', nargs='+', 
-                        # default = ['1022.1', '1022.4'],
                         default=['1022.1', '1022.2', '1022.3', '1022.4', '1024.5', '1024.6', '1024.7', '1025.8'],
                         help='List of experiment folder names to load (space separated)')
     parser.add_argument('--num-samples', type=int, default=722, help='Total number of samples per experiment')
@@ -88,21 +88,6 @@ def read_options() -> argparse.Namespace:
 
     args = parser.parse_args()
     return args
-
-class ThresholdedIoU(tf.keras.metrics.IoU):
-    def __init__(self, num_classes, target_class_ids, name='seg_iou', threshold=0.5, dtype=None):
-        super().__init__(num_classes=num_classes, target_class_ids=target_class_ids, name=name, dtype=dtype)
-        self.threshold = threshold  # Define your desired threshold
-
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        # Explicitly threshold the predictions to get binary values (0 or 1)
-        y_pred = tf.cast(tf.math.greater(y_pred, self.threshold), dtype=tf.float32)
-        
-        # Ensure y_true is also in the correct discrete format if needed (usually it is from the data pipeline)
-        # y_true = tf.cast(tf.math.round(y_true), dtype=tf.float32) 
-        
-        # Call the parent update_state with the now-discrete values
-        super().update_state(y_true, y_pred, sample_weight)
 
 if __name__ == "__main__":
 
