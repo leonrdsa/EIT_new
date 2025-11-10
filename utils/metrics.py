@@ -7,7 +7,7 @@ from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 from scipy.ndimage import label as sp_label, center_of_mass as sp_com
 from scipy.ndimage import binary_erosion, distance_transform_edt
 
-from typing import Dict, Union, Tuple
+from typing import Dict, Union, Tuple, List, Optional
 
 #----------------------------------------------------------------
 'Image Reconstruction Metrics and Utilities using Numpy, SciPy, Scikit-learn, and Skimage'
@@ -99,16 +99,22 @@ def compute_confusion_matrix(
     image_labels_flat = image_labels.reshape(-1)
     binary_reconstruction_flat = binary_reconstruction.reshape(-1)
 
-    cm = confusion_matrix(image_labels_flat, binary_reconstruction_flat)
-
-    return cm
+    return confusion_matrix(image_labels_flat, binary_reconstruction_flat)
 
 
 # ---- Image Quality Metrics -----
 def _to_bhw(
     x: np.ndarray
 ) -> np.ndarray:
-    """Ensure shape (N,H,W), float32, clipped to [0,1]."""
+    """
+    Convert input array to (N,H,W) format and clip to [0,1].
+    
+    Args:
+        x (np.ndarray): Input array of shape (H,W), (N,H,W),
+                        or (N,H,W,1).
+    Returns:
+        np.ndarray: Converted array of shape (N,H,W) with values in [0,1].
+    """
     x = np.asarray(x, dtype=np.float32)
     if x.ndim == 2:          # (H,W) -> (1,H,W)
         x = x[None, ...]
@@ -125,6 +131,12 @@ def _pick_ssim_win_size(
     """
     SSIM requires an odd win_size (default 7). If the image is small,
     choose the largest odd <= min(h,w). Minimum valid is 3.
+
+    Args:
+        h (int): Height of the image.
+        w (int): Width of the image.
+    Returns:
+        int: Appropriate window size for SSIM computation.
     """
     m = max(3, min(h, w))
     if m % 2 == 0:
@@ -231,6 +243,13 @@ def compute_PSNR_batch(
     """
     Per-image PSNR with data_range=1.0 (because inputs are in [0,1]).
     Returns float (mean) or np.ndarray (N,) if reduction == 'none'.
+
+    Args:
+        reconstructed_images (np.ndarray): Model's reconstructed images.
+        image_labels (np.ndarray): Ground truth labelled images.
+        reduction (str): Reduction method, either "mean" or "none".
+    Returns:
+        Union[float, np.ndarray]: PSNR value(s) between the two images.
     """
     preds = _to_bhw(reconstructed_images)
     gts   = _to_bhw(image_labels)
@@ -280,6 +299,13 @@ def compute_SSIM_batch(
     """
     Per-image SSIM (skimage), grayscale (channel_axis=None), data_range=1.0.
     Returns float (mean) or np.ndarray (N,) if reduction == 'none'.
+
+    Args:
+        reconstructed_images (np.ndarray): Model's reconstructed images.
+        image_labels (np.ndarray): Ground truth labelled images.
+        reduction (str): Reduction method, either "mean" or "none".
+    Returns:
+        Union[float, np.ndarray]: SSIM value(s) between the two images.
     """
     preds = _to_bhw(reconstructed_images)
     gts   = _to_bhw(image_labels)
@@ -347,6 +373,12 @@ def _area(
 ) -> float:
     """
     Area of LCC (SciPy) or of all foreground (fallback).
+
+    Args:
+        mask (np.ndarray): Binary mask of the object.
+        spacing (Tuple[float, float]): Physical spacing (row_mm, col_mm).
+    Returns:
+        float: Area of the largest connected component in physical units.
     """
     pix_area = spacing[0] * spacing[1]
     lcc = _largest_cc(mask)
@@ -360,6 +392,12 @@ def _centroid(
     """
     Centroid in (row, col) with optional physical spacing (row_mm, col_mm).
     If SciPy is available and there are multiple components, centroid of LCC; otherwise centroid of all foreground pixels.
+
+    Args:
+        mask (np.ndarray): Binary mask of the object.
+        spacing (Tuple[float, float]): Physical spacing (row_mm, col_mm).
+    Returns:
+        Union[Tuple[float, float], None]: Centroid coordinates or None if no foreground.
     """
     mask = (mask > 0)
     if mask.sum() == 0:
@@ -377,6 +415,13 @@ def _directed_surface_distances(
 ) -> np.ndarray:
     """
     Directed minimal distances from surface A to surface B.
+
+    Args:
+        A (np.ndarray): Binary mask of object A.
+        B (np.ndarray): Binary mask of object B.
+        spacing (Tuple[float, float]): Physical spacing (row_mm, col_mm).
+    Returns:
+        np.ndarray: Array of distances from each surface point in A to the nearest surface point in B.
     """
     A_surf = _surface(A)
     B_surf = _surface(B)
@@ -401,6 +446,14 @@ def _directed_surface_distances(
 def _largest_cc(
     mask: np.ndarray
 ) -> np.ndarray:
+    """
+    Return the largest connected component (LCC) of the binary mask.
+
+    Args:
+        mask (np.ndarray): Binary mask of the object.
+    Returns:
+        np.ndarray: Binary mask of the largest connected component.
+    """
     m = (mask > 0).astype(np.uint8)
     lbl, n = sp_label(m)
     if n == 0:
@@ -415,6 +468,11 @@ def _surface(
 ) -> np.ndarray:
     """
     Return a boolean mask of boundary pixels.
+
+    Args:
+        mask (np.ndarray): Binary mask of the object.
+    Returns:
+        np.ndarray: Binary mask of the boundary pixels.
     """
     mask = (mask > 0)
     if mask.sum() == 0:
@@ -430,6 +488,7 @@ def compute_object_boundary_metrics(
 ) -> Dict[str, float]:
     """
     Compute object-level and boundary-level metrics between predicted and ground truth masks.
+
     Args:
         pred_mask (np.ndarray): Predicted binary masks of shape (N, H, W)
         gt_mask (np.ndarray): Ground truth binary masks of shape (N, H, W)
@@ -473,12 +532,17 @@ def object_metrics_from_masks(
     """
     Compute object-level localization & size errors.
 
+    Args:
+        pred_mask (np.ndarray): Predicted binary mask.
+        gt_mask (np.ndarray): Ground truth binary mask.
+        spacing (Tuple[float, float]): Physical spacing (row_mm, col_mm).
+    
     Returns:
         {
-          'centroid_error': float (in spacing units, Euclidean),
-          'area_error_pct': float (signed %, (pred - gt)/gt * 100),
+          'centroid_error': float,
+          'area_error_pct': float,
           'pred_area': float,
-          'gt_area': float
+          'gt_area': float,
         }
     """
     pred_mask = (pred_mask > 0).astype(np.uint8)
@@ -519,6 +583,12 @@ def hd95_assd(
 ) -> Dict[str, float]:
     """
     Compute symmetric HD95 and ASSD between binary masks.
+
+    Args:
+        pred_mask (np.ndarray): Predicted binary mask.
+        gt_mask (np.ndarray): Ground truth binary mask.
+        spacing (Tuple[float, float]): Physical spacing (row_mm, col_mm).
+    
     Returns:
         {
           'hd95': float,
@@ -555,6 +625,12 @@ def pr_curve_and_auprc(
     """
     Return precision array, recall array, thresholds array, and AUPRC.
     Inputs must be 1D and aligned.
+
+    Args:
+        y_prob_flat (np.ndarray): Flattened predicted probabilities.
+        y_true_flat (np.ndarray): Flattened ground truth binary labels.
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray, float]: Precision, recall, thresholds, and AUPRC value.
     """
     y_true_flat = y_true_flat.astype(np.uint8).ravel()
     y_prob_flat = y_prob_flat.astype(np.float32).ravel()
@@ -567,16 +643,30 @@ def pr_curve_and_auprc(
 #----------------------------------------------------------------
 'Custom Keras Metric'
 
-class ThresholdedIoU(tf.keras.metrics.IoU):
+class ThresholdedIoU(
+    tf.keras.metrics.IoU
+):
     """
         Custom IoU metric that thresholds predictions before computing IoU. Similar to tf.keras.metrics.IoU but with explicit thresholding.
         Also, similar to sklearn.metrics.jaccard_score with binary thresholding, but implemented as a Keras metric for use during model training.
     """
-    def __init__(self, num_classes, target_class_ids, name='seg_iou', threshold=0.5, dtype=None):
+    def __init__(
+            self, 
+            num_classes: int, 
+            target_class_ids: List[int], 
+            name: str ='seg_iou', 
+            threshold: float = 0.5, 
+            dtype: Optional[tf.DType] = None
+        ) -> None:
         super().__init__(num_classes=num_classes, target_class_ids=target_class_ids, name=name, dtype=dtype)
         self.threshold = threshold  # Define your desired threshold
 
-    def update_state(self, y_true, y_pred, sample_weight=None):
+    def update_state(
+            self, 
+            y_true: tf.Tensor, 
+            y_pred: tf.Tensor, 
+            sample_weight: Optional[tf.Tensor] = None
+        ) -> None:
         # Explicitly threshold the predictions to get binary values (0 or 1)
         y_pred = tf.cast(tf.math.greater(y_pred, self.threshold), dtype=tf.float32)
         
