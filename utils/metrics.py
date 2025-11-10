@@ -31,6 +31,18 @@ def compute_segmentation_metrics(
     ) -> Dict[str, float]:
     """
     Compute segmentation metrics between binary reconstruction and ground truth labels.
+    
+    TP = sum((y_true == 1) & (y_pred == 1))
+    FP = sum((y_true == 0) & (y_pred == 1))
+    FN = sum((y_true == 1) & (y_pred == 0))
+    TN = sum((y_true == 0) & (y_pred == 0))
+    
+    Accuracy = (TP + TN) / (TP + TN + FP + FN)
+    Precision = TP / (TP + FP)
+    Recall = TP / (TP + FN)
+    F1-Score = 2 * (Precision * Recall) / (Precision + Recall)
+    IoU = TP / (TP + FP + FN)
+
     Args:
         binary_reconstruction (np.ndarray): Model's binary output images.
         image_labels (np.ndarray): Ground truth labelled images.
@@ -44,7 +56,7 @@ def compute_segmentation_metrics(
     accu1 = precision_score(image_labels_flat,binary_reconstruction_flat)
     accu2 = recall_score(image_labels_flat,binary_reconstruction_flat)
     f1 = f1_score(image_labels_flat,binary_reconstruction_flat)
-    iou = jaccard_score(image_labels_flat,binary_reconstruction_flat, average='binary')
+    iou = jaccard_score(image_labels_flat,binary_reconstruction_flat, average='binary') # pixel-wise IoU
 
     metrics = {
         "Accuracy": accu,
@@ -62,6 +74,12 @@ def compute_confusion_matrix(
     ) -> np.ndarray:
     """
     Compute confusion matrix between binary reconstruction and ground truth labels.
+
+    Confusion Matrix Format:
+                    Predicted Positive   Predicted Negative
+    Actual Positive        TP                  FN
+    Actual Negative        FP                  TN
+
     Args:
         binary_reconstruction (np.ndarray): Model's binary output images.
         image_labels (np.ndarray): Ground truth labelled images.
@@ -83,6 +101,11 @@ def compute_MSE(
     ) -> float:
     """
     Compute Mean Squared Error (MSE) between two images.
+
+    Mean Squared Error (MSE) is calculated as:
+        MSE = (1/n) * Σ (Y_true - Y_pred)^2
+    where n is the number of pixels, Y_true is the ground truth image, and Y_pred is the reconstructed image.
+
     Args:
         reconstructed_images (np.ndarray): Model's reconstructed images.
         image_labels (np.ndarray): Ground truth labelled images.
@@ -98,6 +121,11 @@ def compute_MAE(
     ) -> float:
     """
     Compute Mean Absolute Error (MAE) between two images.
+
+    Mean Absolute Error (MAE) is calculated as:
+        MAE = (1/n) * Σ |Y_true - Y_pred|
+    where n is the number of pixels, Y_true is the ground truth image, and Y_pred is the reconstructed image.
+
     Args:
         reconstructed_images (np.ndarray): Model's reconstructed images.
         image_labels (np.ndarray): Ground truth labelled images.
@@ -113,6 +141,10 @@ def compute_CNR(
     ) -> float:
     """
     Compute Contrast-to-Noise Ratio (CNR) between two images.
+
+    CNR is calculated as:
+        CNR = (mean_signal - mean_background) / (std_background + 1e-8)
+
     Args:
         binary_reconstruction (np.ndarray): Model's binary output images.
         image_labels (np.ndarray): Ground truth labelled images.
@@ -137,6 +169,11 @@ def compute_PSNR(
     ) -> float:
     """
     Compute Peak Signal-to-Noise Ratio (PSNR) between two images.
+
+    PSNR is calculated as:
+        PSNR = 10 * log10((MAX_I^2) / MSE)
+    where MAX_I is the maximum possible pixel value (255 for 8-bit images) and MSE is the mean squared error between the two images.
+
     Args:
         reconstructed_images (np.ndarray): Model's reconstructed images.
         image_labels (np.ndarray): Ground truth labelled images.
@@ -152,6 +189,13 @@ def compute_SSIM(
     ) -> float:
     """
     Compute Structural Similarity Index Measure (SSIM) between two images.
+
+    SSIM is calculated based on luminance, contrast, and structure comparisons between the two images.
+        Specifically, it considers the following components:
+        - Luminance: The brightness of the images.
+        - Contrast: The contrast of the images.
+        - Structure: The structural information of the images.
+
     Args:
         reconstructed_image (np.ndarray): Model's reconstructed image.
         image_label (np.ndarray): Ground truth labelled image.
@@ -170,6 +214,8 @@ def compute_SSIM_batch(
 ) -> Union[float, np.ndarray]:
     """
     Compute SSIM for a batch of images produced by `model`.
+
+    This function computes the SSIM for each image in the batch and returns either the mean SSIM or the SSIM for each image.
 
     Args:
         model: Keras model used for prediction.
@@ -222,6 +268,10 @@ def compute_SSIM_batch(
         return ssim_per_image
     
 class ThresholdedIoU(tf.keras.metrics.IoU):
+    """
+        Custom IoU metric that thresholds predictions before computing IoU. Similar to tf.keras.metrics.IoU but with explicit thresholding.
+        Also, similar to sklearn.metrics.jaccard_score with binary thresholding, but implemented as a Keras metric for use during model training.
+    """
     def __init__(self, num_classes, target_class_ids, name='seg_iou', threshold=0.5, dtype=None):
         super().__init__(num_classes=num_classes, target_class_ids=target_class_ids, name=name, dtype=dtype)
         self.threshold = threshold  # Define your desired threshold
