@@ -643,35 +643,51 @@ def pr_curve_and_auprc(
 #----------------------------------------------------------------
 'Custom Keras Metric'
 
-class ThresholdedIoU(
-    tf.keras.metrics.IoU
-):
+@tf.keras.utils.register_keras_serializable()
+class ThresholdedIoU(tf.keras.metrics.IoU):
     """
-        Custom IoU metric that thresholds predictions before computing IoU. Similar to tf.keras.metrics.IoU but with explicit thresholding.
-        Also, similar to sklearn.metrics.jaccard_score with binary thresholding, but implemented as a Keras metric for use during model training.
+    Custom IoU metric that thresholds predictions before computing IoU.
+
+    This wrapper registers the metric with Keras so saved models that use
+    ThresholdedIoU can be deserialized with `tf.keras.models.load_model`.
+    The metric thresholds `y_pred` using the provided `threshold` and then
+    delegates to the base `tf.keras.metrics.IoU` implementation which
+    accumulates TP/FP/FN across batches.
     """
+
     def __init__(
-            self, 
-            num_classes: int, 
-            target_class_ids: List[int], 
-            name: str ='seg_iou', 
-            threshold: float = 0.5, 
-            dtype: Optional[tf.DType] = None
+            self,
+            num_classes: int = 2,
+            target_class_ids: Optional[List[int]] = None,
+            name: str = 'seg_iou',
+            threshold: float = 0.5,
+            dtype: Optional[tf.DType] = None,
+            **kwargs
         ) -> None:
-        super().__init__(num_classes=num_classes, target_class_ids=target_class_ids, name=name, dtype=dtype)
-        self.threshold = threshold  # Define your desired threshold
+        if target_class_ids is None:
+            target_class_ids = [1]
+        # Accept and forward extra kwargs from older saved configs (e.g., ignore_class, sparse_y_true).
+        super().__init__(num_classes=num_classes, target_class_ids=target_class_ids, name=name, dtype=dtype, **kwargs)
+        self.threshold = float(threshold)  # Define your desired threshold
 
     def update_state(
-            self, 
-            y_true: tf.Tensor, 
-            y_pred: tf.Tensor, 
+            self,
+            y_true: tf.Tensor,
+            y_pred: tf.Tensor,
             sample_weight: Optional[tf.Tensor] = None
         ) -> None:
         # Explicitly threshold the predictions to get binary values (0 or 1)
-        y_pred = tf.cast(tf.math.greater(y_pred, self.threshold), dtype=tf.float32)
-        
-        # Ensure y_true is also in the correct discrete format if needed (usually it is from the data pipeline)
-        # y_true = tf.cast(tf.math.round(y_true), dtype=tf.float32) 
-        
+        y_pred_thr = tf.cast(tf.math.greater(y_pred, self.threshold), dtype=tf.float32)
+
+        # Ensure y_true is in a compatible dtype (float32 works with parent implementation)
+        y_true_cast = tf.cast(y_true, dtype=tf.float32)
+
         # Call the parent update_state with the now-discrete values
-        super().update_state(y_true, y_pred, sample_weight)
+        return super().update_state(y_true_cast, y_pred_thr, sample_weight)
+
+    def get_config(self):
+        base_config = super().get_config()
+        base_config.update({
+            'threshold': float(self.threshold),
+        })
+        return base_config

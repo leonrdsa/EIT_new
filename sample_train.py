@@ -1,8 +1,6 @@
 import os
 import argparse
 import json
-import sys
-import hashlib
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -267,8 +265,15 @@ if __name__ == "__main__":
             if not os.path.exists(os.path.join(args.checkpoint_dir, args.save_model_folder)):
                 os.makedirs(os.path.join(args.checkpoint_dir, args.save_model_folder))
             model_path = os.path.join(args.checkpoint_dir, args.save_model_folder, f'{args.save_model_folder}.keras')
+            
             print("Saving model to:", model_path)
             model.save(model_path)
+
+            # save history object
+            history_path = os.path.join(args.checkpoint_dir, args.save_model_folder, 'history.json')
+            with open(history_path, 'w') as f:
+                json.dump(history.history, f, indent=4)
+
 
     # -------------------------------------------------------------------
     # Evaluation
@@ -375,3 +380,14 @@ if __name__ == "__main__":
             plt.tight_layout()
             plt.savefig(os.path.join(path, 'training_validation_loss.png'), dpi=200)
             plt.savefig(os.path.join(path, 'training_validation_loss.svg'))  # nice for the paper
+
+            plt.figure()
+            plt.plot(history.history['seg_iou'], label = 'Training IoU')
+            plt.plot(history.history['val_seg_iou'], label = 'Validation IoU')
+            plt.legend()
+            plt.xlabel('Epochs')
+            plt.ylabel('IoU')
+            plt.title('Training and Validation IoU')
+            plt.tight_layout()
+            plt.savefig(os.path.join(path, 'training_validation_iou.png'), dpi=200)
+            plt.savefig(os.path.join(path, 'training_validation_iou.svg'))  # nice for the paper
