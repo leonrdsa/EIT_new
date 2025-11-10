@@ -14,8 +14,8 @@ from tensorflow.keras.models import load_model
 from utils.setup import set_seeds
 from utils.dataloader import load_eit_dataset
 from utils.filters import bandpass_filter, pca_transform, savitzky_filter, wavelet_filter
-from utils.metrics import compute_SSIM, reconstruct_image, compute_segmentation_metrics, compute_confusion_matrix
-from utils.metrics import compute_MSE, compute_CNR, compute_PSNR, compute_SSIM, compute_SSIM_batch
+from utils.metrics import reconstruct_image, compute_segmentation_metrics, compute_confusion_matrix
+from utils.metrics import pr_curve_and_auprc, compute_image_metrics, compute_object_boundary_metrics
 from utils.metrics import ThresholdedIoU
 from models.image_reconstruction import Voltage2Image
 from models.schedulers import SchedulerandTrackerCallback
@@ -242,10 +242,9 @@ if __name__ == "__main__":
             loss=args.loss, 
             optimizer=opt, 
             metrics=[
-                # 'accuracy',
+                custom_iou,
                 'precision',
                 'recall',
-                custom_iou
                 ],
         )
 
@@ -273,63 +272,68 @@ if __name__ == "__main__":
 
     # -------------------------------------------------------------------
     # Evaluation
-    # if not args.load_model:
-    #     plt.figure()
-    #     plt.plot(history.history['loss'], label = 'Training loss')
-    #     plt.plot(history.history['val_loss'], label = 'Validation loss')
-    #     plt.legend()  # Add legend elements
-    #     plt.xlabel('Epochs')
-    #     plt.ylabel('Loss')
-    #     plt.title('Training and Validation Loss')
+    metrics = {}
 
-    #     plt.show()
-    
     reconstructed_images, binary_reconstructions = reconstruct_image(
         model,
         x_test,
         threshold=args.binary_threshold
     )
 
-    metrics = compute_segmentation_metrics(
-        binary_reconstructions,
-        y_test,
-    )
-
-    metrics["MSE"] = compute_MSE(
-        reconstructed_images,
-        y_test
-    )
-
-    metrics["CNR"] = compute_CNR(
-        binary_reconstructions,
-        y_test,
-    )
-
-    metrics["PSNR"] = compute_PSNR(
-        reconstructed_images,
-        y_test
-    )
-
-    metrics["SSIM-1"] = compute_SSIM(
-        reconstructed_images,
-        y_test
-    )
-
-    metrics["SSIM"] = compute_SSIM_batch(
-        reconstructed_images,
-        y_test,
-        threshold=args.binary_threshold
-    )
-
-    for k, v in metrics.items():
-        print(f"{k}: {v:.5f}")
+    # ---- Segmentation metrics (Pixelwise) ----
+    metrics.update({"Segmentation Metrics": 
+        compute_segmentation_metrics(
+            binary_reconstructions,
+            y_test,
+        )
+    })
 
     confusion_matrix = compute_confusion_matrix(
         binary_reconstructions,
         y_test,
     )
 
-    print("Confusion Matrix:")
+    # ---- Image-Level Metrics ----
+    metrics.update( {"Image-Level Metrics":
+        compute_image_metrics(
+            reconstructed_images,
+            y_test,
+        )
+    })
+
+    # --- Object-Level and Boundary-Level Metrics ----
+    metrics.update( {"Object-Level and Boundary-Level Metrics":
+        compute_object_boundary_metrics(
+            binary_reconstructions,
+            y_test,
+        )
+    })
+
+    # ---- PR curve / AUPRC (Pixelwise) ----
+    prec, rec, thr, auprc = pr_curve_and_auprc(
+        reconstructed_images,
+        y_test
+    )
+
+    metrics.update({"PR Curve / AUPRC": {
+        "AUPRC": auprc,
+    }})
+
+    print("\nEvaluation Metrics:")
+    print("="*50)
+    
+    for category, metric_dict in metrics.items():
+        print(f"\n{category}:")
+        print("-"*50)
+        # Calculate the maximum length for alignment
+        max_metric_length = max(len(metric) for metric in metric_dict.keys())
+        
+        for metric, value in metric_dict.items():
+            # Right-align the values and pad metric names for clean columns
+            print(f"{metric:<{max_metric_length}} : {value:>10.5f}")
+    
+    print("\nConfusion Matrix:")
+    print("-"*50)
     print(confusion_matrix)
 
     # save metrics and confusion matrix
@@ -344,3 +348,30 @@ if __name__ == "__main__":
         confusion_matrix_path = os.path.join(path, 'confusion_matrix.txt')
         with open(confusion_matrix_path, 'w') as f:
             f.write(np.array2string(confusion_matrix))
+
+        # save PR curve figure
+        pos_prev = (y_test.sum() / max(1, y_test.size))
+        plt.plot(rec, prec, label=f'PR curve (AP={auprc:.3f})')
+        plt.hlines(pos_prev, xmin=0, xmax=1, linestyles='dashed', label=f'Baseline={pos_prev:.3f}')
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
+        plt.title('Precision-Recall Curve')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(os.path.join(path, 'pr_curve.png'), dpi=200)
+        plt.savefig(os.path.join(path, 'pr_curve.svg'))  # nice for the paper
+
+        # check if history exists
+        if 'history' in locals():
+            # save training history figure
+            plt.figure()
+            plt.plot(history.history['loss'], label = 'Training loss')
+            plt.plot(history.history['val_loss'], label = 'Validation loss')
+            plt.legend()  # Add legend elements
+            plt.xlabel('Epochs')
+            plt.ylabel('Loss')
+            plt.title('Training and Validation Loss')
+            plt.tight_layout()
+            plt.savefig(os.path.join(path, 'training_validation_loss.png'), dpi=200)
+            plt.savefig(os.path.join(path, 'training_validation_loss.svg'))  # nice for the paper
