@@ -4,6 +4,7 @@ import json
 
 import numpy as np
 import matplotlib.pyplot as plt
+from time import time
 
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
@@ -43,6 +44,9 @@ def read_options() -> argparse.Namespace:
     parser.add_argument('--resolution', type=int, default=128, help='Image resolution (height == width)')
     parser.add_argument('--sampling-rate', type=int, default=128, help='Sampling rate for voltage data')
     parser.add_argument('--sample-id', type=int, default=0, help='Index of sample to visualize (0-based)')
+
+    parser.add_argument('--use-subset', action='store_true', help='Use a smaller subset of the data for training.')
+    parser.add_argument('--subset-percentage', type=float, default=0.5, help='Number of samples to use if --use-subset is set.')
 
     # Data processing parameters
     parser.add_argument('--batch-size', type=int, default=64, help='Batch size for training/testing datasets')
@@ -142,6 +146,16 @@ if __name__ == "__main__":
 
     x_train = (x_train - mean) / var
     x_test = (x_test - mean) / var
+
+    # Use subset of the data if specified
+    if args.use_subset:
+        num_train_samples = int(len(x_train) * args.subset_percentage)
+
+        x_train = x_train[:num_train_samples]
+        y_train = y_train[:num_train_samples]
+        exp_info_train = exp_info_train[:num_train_samples]
+
+        print(f"Using subset of train data ({args.subset_percentage*100:.0f}%): {num_train_samples} samples.")
 
     data_shape = x_train.shape
 
@@ -248,6 +262,8 @@ if __name__ == "__main__":
 
         model.summary()
 
+
+        train_time_start = time()
         history = model.fit(
             train_dataset, 
             epochs=args.epochs, 
@@ -255,6 +271,11 @@ if __name__ == "__main__":
             callbacks=callbacks,
             shuffle=True
         )
+        total_train_time = time() - train_time_start
+        # print time in hrs, mins, secs
+        hrs, rem = divmod(total_train_time, 3600)
+        mins, secs = divmod(rem, 60)
+        print(f"Total training time: {int(hrs)} hrs, {int(mins)} mins, {int(secs)} secs.")
         loss = history.history['loss']
 
         # -------------------------------------------------------------------
@@ -279,11 +300,14 @@ if __name__ == "__main__":
     # Evaluation
     metrics = {}
 
+    inference_start_time = time()
     reconstructed_images, binary_reconstructions = reconstruct_image(
         model,
         x_test,
         threshold=args.binary_threshold
     )
+    total_inference_time = time() - inference_start_time
+    print(f"Total inference time on test set: {total_inference_time:.2f} seconds.")
 
     # ---- Segmentation metrics (Pixelwise) ----
     metrics.update({"Segmentation Metrics": 
@@ -323,6 +347,12 @@ if __name__ == "__main__":
     metrics.update({"PR Curve / AUPRC": {
         "AUPRC": auprc,
     }})
+
+    metrics.update(
+        {"Time": {
+            "Inference Time": total_inference_time,
+            "Training Time": total_train_time if 'total_train_time' in locals() else None
+        }})
 
     print("\nEvaluation Metrics:")
     print("="*50)
@@ -373,11 +403,12 @@ if __name__ == "__main__":
             plt.figure()
             plt.plot(history.history['loss'], label = 'Training loss')
             plt.plot(history.history['val_loss'], label = 'Validation loss')
-            plt.legend()  # Add legend elements
             plt.xlabel('Epochs')
             plt.ylabel('Loss')
             plt.title('Training and Validation Loss')
             plt.tight_layout()
+            plt.legend()  # Add legend elements
+            plt.grid(True)
             plt.savefig(os.path.join(path, 'training_validation_loss.png'), dpi=200)
             plt.savefig(os.path.join(path, 'training_validation_loss.svg'))  # nice for the paper
 
@@ -389,5 +420,7 @@ if __name__ == "__main__":
             plt.ylabel('IoU')
             plt.title('Training and Validation IoU')
             plt.tight_layout()
+            plt.legend()  # Add legend elements
+            plt.grid(True)
             plt.savefig(os.path.join(path, 'training_validation_iou.png'), dpi=200)
             plt.savefig(os.path.join(path, 'training_validation_iou.svg'))  # nice for the paper
