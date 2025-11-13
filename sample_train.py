@@ -36,7 +36,9 @@ def read_options() -> argparse.Namespace:
         description='Load EIT voltage data and corresponding labelled images'
     )
 
-    # Data loading parameters
+    # =====================
+    # Data Loading Parameters
+    # =====================
     parser.add_argument('--data-path', type=str, default='./data', help='Root data directory')
     parser.add_argument('-exp', '--experiments', nargs='+', 
                         default=['1022.1', '1022.2', '1022.3', '1022.4', '1024.5', '1024.6', '1024.7', '1025.8'],
@@ -45,57 +47,57 @@ def read_options() -> argparse.Namespace:
     parser.add_argument('--offset-num', type=int, default=2, help='Offset to skip the first N samples')
     parser.add_argument('--num-pins', type=int, default=16, help='Number of pins in the voltage data')
     parser.add_argument('--resolution', type=int, default=128, help='Image resolution (height == width)')
-    parser.add_argument('-d', '--downscale', action='store_true', help='Flag to downscale images for training')
-    parser.add_argument('--downscale-resolution', type=int, default=64,
-                        help='Downscaled target resolution for training/validation masks')
-
     parser.add_argument('--sampling-rate', type=int, default=128, help='Sampling rate for voltage data')
-    parser.add_argument('--sample-id', type=int, default=0, help='Index of sample to visualize (0-based)')
+    # parser.add_argument('--sample-id', type=int, default=0, help='Index of sample to visualize (0-based)')
 
-    parser.add_argument('--use-subset', action='store_true', help='Use a smaller subset of the data for training.')
-    parser.add_argument('--subset-percentage', type=float, default=0.5, help='Number of samples to use if --use-subset is set.')
-
-    parser.add_argument('--skip-pins', action='store_true', help='Skip certain pins in the voltage data.')
-    parser.add_argument('--skip-every-n', type=int, default=2, help='Skip every Nth pin if --skip-pins is set.')
-
-    # Data processing parameters
+    # =====================
+    # Data Processing Parameters
+    # =====================
     parser.add_argument('--batch-size', type=int, default=64, help='Batch size for training/testing datasets')
     parser.add_argument('--test-size', type=float, default=0.2, help='Proportion of the dataset to include in the test split')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for data splitting.')
     parser.add_argument('--binary-threshold', type=float, default=0.5, help='Threshold to binarize the images')
+    parser.add_argument('-d', '--downscale', action='store_true', help='Flag to downscale images for training')
+    parser.add_argument('--downscale-resolution', type=int, default=64, help='Downscaled target resolution for training/validation masks')
+    parser.add_argument('--use-subset', action='store_true', help='Use a smaller subset of the data for training.')
+    parser.add_argument('--subset-percentage', type=float, default=0.5, help='Number of samples to use if --use-subset is set.')
+    parser.add_argument('--skip-pins', action='store_true', help='Skip certain pins in the voltage data.')
+    parser.add_argument('--skip-every-n', type=int, default=2, help='Skip every Nth pin if --skip-pins is set.')
 
-    # Data filtering parameters
+    # =====================
+    # Data Filtering Parameters
+    # =====================
     parser.add_argument('--use-bandpass', action='store_true', help='Apply Adaptive Bandpass filtering to the voltage data before training.')
     parser.add_argument('--use-pca', action='store_true', help='Apply PCA filtering to the voltage data before training.')
     parser.add_argument('--pca-components', type=int, default=16*128, help='Number of PCA components to keep if PCA filtering is used.')
     parser.add_argument('--use-savgol', action='store_true', help='Apply Savitzky-Golay filtering to the voltage data before training.')
     parser.add_argument('--use-wavelet', action='store_true', help='Apply Wavelet denoising to the voltage data before training.')
 
-
-    # Model training parameters
-    parser.add_argument('--learning-rate', type=float, default=0.001, help='Learning rate for the optimizer')
-    parser.add_argument('--epochs', type=int, default=1000, help='Number of training epochs')
-    parser.add_argument('--loss', type=str, choices=['mse', 'binary_crossentropy'], default='binary_crossentropy',
-                        help='Loss function to use during training')
-    parser.add_argument('--training-circles-num', type=str, default='all', choices=['all', '1', '2', '3', '4'],
-                        help='Number of circles to include in training data (all or specific number)')
-    parser.add_argument('--testing-circles-num', type=str, default='all', choices=['all', '1', '2', '3', '4'],
-                        help='Number of circles to include in testing data (all or specific number)')
-    
-    # Model loading parameters
+    # =====================
+    # Model Training Parameters
+    # =====================
     parser.add_argument('-t', '--train-model', action='store_true', help='Flag to train the model from scratch or fine-tune a pre-trained model.')
     parser.add_argument('-e', '--eval-model', action='store_true', help='Flag to evaluate the model on the test dataset.')
+    parser.add_argument('--learning-rate', type=float, default=0.001, help='Learning rate for the optimizer')
+    parser.add_argument('--epochs', type=int, default=1000, help='Number of training epochs')
+    parser.add_argument('--loss', type=str, choices=['mse', 'binary_crossentropy'], default='binary_crossentropy', help='Loss function to use during training')
+    parser.add_argument('--training-circles-num', type=str, default='all', choices=['all', '1', '2', '3', '4'], help='Number of circles to include in training data (all or specific number)')
+    parser.add_argument('--testing-circles-num', type=str, default='all', choices=['all', '1', '2', '3', '4'], help='Number of circles to include in testing data (all or specific number)')
 
+    # =====================
+    # Model Loading/Saving Parameters
+    # =====================
     parser.add_argument('--checkpoint-dir', type=str, default='./checkpoints', help='Directory to save/load model checkpoints')
     parser.add_argument('-l', '--load-model', action='store_true', help='Flag to load a pre-trained model')
     parser.add_argument('--load-model-folder', type=str, default='modeloriginal', help='Folder name to load the pre-trained model from')
-
     parser.add_argument('-s', '--save-model', action='store_true', help='Flag to save the trained model')
     parser.add_argument('-m', '--save-multi-checkpoint', action='store_true', help='Flag to save the model at regular intervals during training')
     parser.add_argument('--save-every', type=int, default=100, help='Save the model every N epochs if --save-multi-checkpoint is set')
     parser.add_argument('--save-model-folder', type=str, default='modeloriginal', help='Folder name to save the trained model to')
 
-    # Caching options to speed up repeated experiments
+    # =====================
+    # Caching Options
+    # =====================
     parser.add_argument('--use-cache', action='store_true', help='Load preprocessed data from cache if available')
     parser.add_argument('--store-cache', action='store_true', help='Store preprocessed data to cache after loading')
     parser.add_argument('--rebuild-cache', action='store_true', help='Ignore cache and rebuild it from source files')
@@ -107,6 +109,9 @@ def read_options() -> argparse.Namespace:
 if __name__ == "__main__":
 
     args = read_options()
+
+    assert args.train_model or args.eval_model, "Error: A model must be trained and/or evaluated."
+    assert args.train_model or args.load_model, "Error! Model must be trained from scratch or a pre-trained model must be loaded."
 
     print('='*20)
     for key, value in vars(args).items():
