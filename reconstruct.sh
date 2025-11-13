@@ -1,3 +1,4 @@
+# Run reconstructions for various trained models
 python sample_reconstruction.py --use-cache --load-model-folder model_benchmark
 python sample_reconstruction.py --use-cache --load-model-folder model_benchmark_epoch200
 python sample_reconstruction.py --use-cache --load-model-folder model_benchmark_epoch400
